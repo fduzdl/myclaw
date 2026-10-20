@@ -151,6 +151,47 @@ def profile_level_models(name: str) -> dict[str, str]:
     }
 
 
+_MODEL_ENV_KEYS = (
+    "ANTHROPIC_DEFAULT_HAIKU_MODEL",
+    "ANTHROPIC_DEFAULT_SONNET_MODEL",
+    "ANTHROPIC_DEFAULT_OPUS_MODEL",
+)
+
+
+def sync_profile_models_from_examples() -> dict[str, list[str]]:
+    """启动时把 git 跟踪模板中的模型档位键同步进本地 profile。
+
+    本地 settings_<name>.json 含 API token、被 gitignore，模型 id 在 setup 时
+    写死后不再随版本演进；模型阵容属于随仓库更新的产品设置，由
+    config/examples/settings_<name>.example.json 提供。仅覆盖 _MODEL_ENV_KEYS
+    三个键，token / base_url / label 等其余内容原样保留；无对应模板的
+    profile（自定义供应商）不动。返回 {profile 名: [被更新的键]}。
+    """
+    changed: dict[str, list[str]] = {}
+    for f in sorted(CONFIG_DIR.glob("settings_*.json")):
+        example = CONFIG_DIR / "examples" / f"{f.stem}.example.json"
+        if not example.exists():
+            continue
+        try:
+            data = json.loads(f.read_text("utf-8"))
+            ex_env = json.loads(example.read_text("utf-8")).get("env", {})
+            env = data.setdefault("env", {})
+            diff = [
+                key for key in _MODEL_ENV_KEYS
+                if isinstance(ex_env.get(key), str) and ex_env[key] and env.get(key) != ex_env[key]
+            ]
+            if not diff:
+                continue
+            for key in diff:
+                env[key] = ex_env[key]
+            f.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", "utf-8")
+            changed[f.stem.replace("settings_", "")] = diff
+            logger.info("Profile %s: synced model keys %s from example", f.stem, diff)
+        except Exception as e:
+            logger.warning("Failed to sync %s from example: %s", f.name, e)
+    return changed
+
+
 def load_active_profile_env() -> dict[str, str]:
     """Return env vars for the active profile, for claude subprocess injection.
 

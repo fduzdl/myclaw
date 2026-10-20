@@ -10,6 +10,7 @@ from fastapi import FastAPI
 from lark_oapi.event.dispatcher_handler import EventDispatcherHandler
 
 from config.settings import settings
+from app.profiles import sync_profile_models_from_examples
 from app.feishu.client import feishu_client
 from app.feishu.ws import FeishuWsClient, create_ws_client
 from app.feishu import events
@@ -96,6 +97,12 @@ async def lifespan(app: FastAPI):
         settings.get_allowed_group_ids() or "(none)",
     )
     logger.info("Claude CLI: %s", settings.claude_cli_path)
+
+    # 模型档位随仓库模板（config/examples）演进：git pull 后重启即生效，
+    # 老用户无需重新 setup；API Key 等私有键不受影响。
+    model_sync = sync_profile_models_from_examples()
+    if model_sync:
+        logger.info("Model lineup refreshed from repo templates: %s", model_sync)
 
     # Start Feishu WebSocket long-connection
     if "feishu" in enabled:
